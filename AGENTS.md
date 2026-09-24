@@ -30,8 +30,8 @@ hand off to implementation instead.
 
 1. **Everything on the board.** Every issue — the wayfinder map, decision tickets,
    epics, specs, and tickets — appears on the
-   [`cloud-native` project board](https://github.com/users/monocongo/projects/11)
-   (owner `monocongo`). Verify with `gh project item-list` and add missing items with
+   [`cloud-native` project board](https://github.com/orgs/climate-indices/projects/1)
+   (owner `climate-indices`). Verify with `gh project item-list` and add missing items with
    `gh project item-add`. Board fields: `Status`, `Epic` (E1–E9), `Agent`
    (`claude-code`/`pi`/`human`), `Estimate` (hours), `Actual` (hours),
    `Milestone (M1-M5)`.
