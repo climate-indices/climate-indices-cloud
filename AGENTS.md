@@ -12,8 +12,8 @@ portable project guidance for all coding agents; tool-specific files (for exampl
   point, not a contract. Challenge it.
 - [Issue tracker guide](docs/agent/issue-tracker.md) — creating and managing issues,
   the project board, and the wayfinder operations used by the delivery plan.
-- [CONTEXT.md](CONTEXT.md) — the domain glossary, once seeded. Read before using
-  domain terms.
+- [CONTEXT.md](CONTEXT.md) — the service's domain glossary, and the compute library's
+  own `CONTEXT.md` for the index vocabulary. Read before using domain terms.
 - [docs/adr/](docs/adr/) — decisions already made and their reasons.
 - Compute-engine evidence: [`climate_indices` CHANGELOG](https://github.com/monocongo/climate_indices/blob/main/CHANGELOG.md)
   (3.0.0), [VALIDATION.md](https://github.com/monocongo/climate_indices/blob/main/VALIDATION.md),
