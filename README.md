@@ -13,7 +13,7 @@ service. Optimize for production realism, low steady-state cost, and clear evide
 over feature count.
 
 **Status:** planning. The delivery plan lives in the
-[`cloud-native` project board](https://github.com/users/monocongo/projects/11) and the
+[`cloud-native` project board](https://github.com/orgs/climate-indices/projects/1) and the
 wayfinder map issue. The scope proposal is [docs/capstone/brief.md](docs/capstone/brief.md).
 
 **Not for operational decisions.** Every published dataset is validated against the
