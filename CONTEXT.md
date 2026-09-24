@@ -36,6 +36,10 @@ A versioned artifact for one index, one timescale, and one calibration window, o
 period — the thing a consumer cites. Created by a Publish.
 _Avoid_: Output (a compute-run term, not something a consumer identifies)
 
+**Dataset Version**:
+Identifies a Published Dataset by the last month it covers and by how many times that coverage
+has been published — a re-Publish of the same month is a new version, not an overwrite.
+
 **Publish**:
 The act of making a computed dataset live, after the Validation Gate passes and a Validation
 Report is written. Distinct from computing: computing can happen any number of times, a
@@ -60,6 +64,11 @@ How well an index's numbers are externally corroborated — `external-validated`
 `reference-reproduced`, or `characterization-only`. A level of evidence, never a synonym for
 "correct".
 _Avoid_: Validated (bare — it hides which of the three is meant)
+
+**Reference Ceiling**:
+The largest disagreement with an index's operational reference that library validation
+actually measured, with headroom. It is what the Validation Gate enforces, and it holds only
+at the resolution and configuration it was measured at. Never widened to make a Publish pass.
 
 **Data Freshness**:
 The interval between an Upstream's publication and our Publish. The service's third SLO, and
