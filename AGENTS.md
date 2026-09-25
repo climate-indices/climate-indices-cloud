@@ -40,8 +40,13 @@ hand off to implementation instead.
    "blocked by" relationships.
 3. **Delivery telemetry from day one.** Every commit carries
    `Ticket: #N` and `Agent: <claude-code|pi|human>` trailers. Every ticket gets an
-   `Estimate` (hours) before any agent starts it. Per-ticket records are appended to
-   `metrics/runs.jsonl`.
+   `Estimate` (hours) before any agent starts it. An agent that takes a ticket assigns it
+   and immediately posts a claim comment, `Claim: agent=<claude-code|pi> session=<id> estimate=<hours>`
+   (session id from `$CLAUDE_CODE_SESSION_ID` or `$PI_SESSION_ID`). Per-ticket records in
+   `metrics/runs.jsonl` are written by the weekly metrics batch from the recorded sources,
+   never by hand; until that batch exists, claim comments, trailers, and board fields are the
+   record and the batch backfills earlier tickets
+   ([ADR-0010](docs/adr/0010-delivery-telemetry-from-session-logs-with-claim-attribution.md)).
 4. **M1 first.** Decisions that unblock milestone M1 (the SPI-3 tracer bullet — nClimGrid
    → Zarr → validated → one API endpoint on a dev cluster) take priority over the rest.
 
