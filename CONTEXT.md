@@ -94,14 +94,38 @@ Who did the work on a ticket — `claude-code`, `pi`, or `human`. Recorded on th
 commit trailers, because Delivery Telemetry depends on it.
 
 **Estimate** / **Actual**:
-Hours, in that order: Estimate is recorded before any agent starts a ticket, Actual when it
-finishes. Estimates are biased by construction and are published as a reference point, never
-as a speed claim.
+Hours, in that order. Estimate is the focused time a competent developer would need working
+unaided, recorded before any agent starts a ticket. Actual is wall-clock from first assignment
+to last close, so it includes time spent waiting on a human. Estimates are biased by
+construction and are published as a reference point beside Actual, never as a speed claim.
 
 **Delivery Telemetry**:
 The measured record of how this project itself was built — throughput, cycle time, agent
-attribution, Human Attention Minutes — published including its misses.
+attribution, Human Attention Minutes — published including its Misses. Its metric definitions
+are frozen and versioned so they cannot be chosen after the results are known.
+
+**Handback**:
+The moment an agent ends its turn and waits for the human's next message. The gap until that
+message is a handback gap.
 
 **Human Attention Minutes**:
-Time an agent spent blocked waiting on a human, per ticket. The scarce resource the
-telemetry exists to expose.
+The sum of a ticket's handback gaps, each capped so that a human being away is not counted as
+attention. The scarce resource the telemetry exists to expose.
+_Avoid_: Blocked time (the agent's `blocked` state misses a question asked in chat)
+
+**Claim**:
+The dated record that an agent session took a ticket. It joins the session to the ticket and
+fixes both the claim time and the Estimate as of that moment.
+
+**Unattributed Work**:
+Agent activity in a session that never claimed a ticket. Published as its own bucket, so
+ticket totals plus Unattributed Work equal the whole.
+
+**Miss**:
+A negative outcome named in advance — a reopen, a revert, a declined hold — that Delivery
+Telemetry publishes even when its count is zero.
+
+**Gate Hold**:
+A pending tool call the tool-call gate stopped for the human to confirm or that it refused
+outright. A hold the human declines is a correct catch; one the human approves was
+unnecessary.
