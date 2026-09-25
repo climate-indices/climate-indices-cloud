@@ -185,7 +185,7 @@ numbers credible).
 
 **Attribution:**
 
-- Commit trailers: `Ticket: #N` and `Agent: <claude-code|pi|human>`.
+- Commit trailer: `Ticket: #N`.
 - Board field `Agent`.
 - A pre-work `Estimate` (hours) on every ticket before any agent starts it. Estimates are
   biased; present them as a reference point, not as an "N× faster" claim.
