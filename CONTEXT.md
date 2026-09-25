@@ -106,8 +106,8 @@ A sub-issue of an epic describing what to build, produced from `/to-spec`. Ticke
 sub-issues of a spec.
 
 **Agent**:
-Who did the work on a ticket — `claude-code`, `pi`, or `human`. Recorded on the board and in
-commit trailers, because Delivery Telemetry depends on it.
+Who did the work on a ticket — `claude-code`, `pi`, or `human`. Recorded on the board, because
+Delivery Telemetry depends on it.
 
 **Estimate** / **Actual**:
 Hours, in that order. Estimate is the focused time a competent developer would need working

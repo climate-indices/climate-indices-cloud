@@ -39,7 +39,7 @@ hand off to implementation instead.
    sub-issues of their epic; tickets are sub-issues of their spec, with native
    "blocked by" relationships.
 3. **Delivery telemetry from day one.** Every commit carries
-   `Ticket: #N` and `Agent: <claude-code|pi|human>` trailers. Every ticket gets an
+   a `Ticket: #N` trailer and no model or harness attribution. Every ticket gets an
    `Estimate` (hours) before any agent starts it. An agent that takes a ticket assigns it
    and immediately posts a claim comment, `Claim: agent=<claude-code|pi> session=<id> estimate=<hours>`
    (session id from `$CLAUDE_CODE_SESSION_ID` or `$PI_SESSION_ID`). Per-ticket records in
