@@ -73,7 +73,9 @@ at the resolution and configuration it was measured at. Never widened to make a 
 
 **Data Freshness**:
 The interval between an Upstream's publication and our Publish. The service's third SLO, and
-the reason ingestion is event-driven where the upstream announces new data.
+the reason ingestion is event-driven where the upstream announces new data. Every new or revised
+Upstream object starts its own clock, and a Publish delayed by a Validation Gate block is still
+late: freshness is what a consumer experiences, not why it slipped.
 
 ### Callers
 
