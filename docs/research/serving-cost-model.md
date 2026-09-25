@@ -52,13 +52,13 @@ What the model found, in order of dollars:
 | Secrets Manager / ECR storage | $0.40 per secret-month / $0.10 per GB-month | Price List `AWSSecretsManager`, `AmazonECR` | 2026-09-25 |
 | Fargate (Karpenter host alternative) | $0.04048/vCPU-h, $0.004445/GB-h | Price List `AmazonECS` | 2026-09-25 |
 | WAF | $5 per web ACL, $1 per rule or managed rule group, $0.60 per million requests up to 1,500 WCU | Price List `awswaf`; [WAF pricing](https://aws.amazon.com/waf/pricing/) | 2026-09-25 |
-| CloudFront pay-as-you-go | always-free 1 TB out and 10M requests; then $0.085/GB (first tier), $0.0100 per 10k HTTPS requests; Functions $0.10/M (2M free); VPC-origin fetches free; 1,000 invalidation paths free | [CloudFront pay-as-you-go pricing](https://aws.amazon.com/cloudfront/pricing/pay-as-you-go/) | 2026-09-25 |
+| CloudFront pay-as-you-go | always-free 1 TB out and 10M requests; then $0.085/GB (first tier), $0.0100 per 10k HTTPS requests; Functions $0.10/M (2M free); VPC-origin fetches free; 1,000 invalidation paths free | [CloudFront pay-as-you-go pricing](https://aws.amazon.com/cloudfront/pricing/pay-as-you-go/); Price List global `AmazonCloudFront/current/index.json` | 2026-09-25 |
 
 ## Dev floor
 
 ### What ADR-0005 counted
 
-ADR-0005: "Dev's floor after ADR-0003 (no NAT) is roughly the EKS control plane plus an ALB, a small spot node, storage, and logs, leaving genuine headroom for recompute bursts."
+ADR-0005: "Dev's floor after ADR-0003 (no NAT) is roughly the EKS control plane plus an ALB, a small spot node, storage, and logs, leaving genuine headroom for recompute bursts; prod adds CloudFront, WAF, and a larger serving pool."
 
 | Item | Arithmetic | Low | Central | High |
 | --- | --- | ---: | ---: | ---: |
@@ -93,7 +93,7 @@ CloudFront is not in dev before M4 ([#19](https://github.com/climate-indices/cli
 
 Where each addition comes from:
 
-- **Endpoints.** ADR-0003's list is ECR (`ecr.api`, `ecr.dkr`), Secrets Manager, CloudWatch Logs, and STS: five interface endpoints (the S3 gateway endpoint is free). [AWS's private-cluster page](https://docs.aws.amazon.com/eks/latest/userguide/private-clusters.html) adds `ec2` and `elasticloadbalancing`, and `eks-auth` for Pod Identity. That makes 7, or 8 with either `eks-auth` or a Karpenter interruption queue (the SQS endpoint). ADR-0009 already reports the gap; this prices it. Pod Identity swaps `sts` for `eks-auth`, so it does not save an endpoint. M4 adds SQS (Submission queue, [#19](https://github.com/climate-indices/climate-indices-cloud/issues/19)) and SNS (Alertmanager, ADR-0007), so prod carries about 10. Dev pins to one AZ in Low and Central; EKS itself needs subnets in two AZs, but nodes and endpoints do not.
+- **Endpoints.** ADR-0003 lists ECR, Secrets Manager, CloudWatch, and STS; read as `ecr.api`, `ecr.dkr`, `secretsmanager`, `logs`, and `sts`, that is five interface endpoints (the S3 gateway endpoint is free). [AWS's private-cluster page](https://docs.aws.amazon.com/eks/latest/userguide/private-clusters.html) adds `ec2` and `elasticloadbalancing`, and `eks-auth` for Pod Identity. That makes 7, or 8 with either `eks-auth` or a Karpenter interruption queue (the SQS endpoint). The same page also lists `eks` and, for IRSA, `oidc-eks`, and Karpenter's [private-cluster guide](https://karpenter.sh/docs/getting-started/getting-started-with-karpenter/) requires `ec2`, `ssm` (resolving default AMIs), and `eks` (discovering the cluster endpoint). `ssm` is avoidable only by pinning AMI IDs. Neither `ssm` nor `eks` is in the counts here; each adds $7.30 per AZ. ADR-0009 already reports the gap; this prices it. Pod Identity swaps `sts` for `eks-auth`, so it does not save an endpoint. M4 adds SQS (Submission queue, [#19](https://github.com/climate-indices/climate-indices-cloud/issues/19)) and SNS (Alertmanager, ADR-0007), so prod carries about 10. Dev pins to one AZ in Low and Central; EKS itself needs subnets in two AZs, but nodes and endpoints do not.
 - **Karpenter host.** The [EKS best-practices guide](https://aws.github.io/aws-eks-best-practices/karpenter/): "Do not run Karpenter on a node that is managed by Karpenter", with "one small node group with at least one worker node" or a Fargate profile as the alternatives. The [Karpenter getting-started guide](https://karpenter.sh/docs/getting-started/getting-started-with-karpenter/) uses a managed node group (`m5.large`, minimum 1) for the `kube-system` and `karpenter` namespaces and requests 1 vCPU / 1 GiB for the controller. On Fargate that request bills 1 vCPU + 2 GB, $36.04 a month, because Fargate [adds 256 MB per pod and rounds up to a supported size](https://docs.aws.amazon.com/eks/latest/userguide/fargate-pod-configuration.html); that is more than a t3.medium on demand. No ADR mentions this host. The API pool ADR-0003 describes is Karpenter-managed, so it cannot be the host.
 - **M2 node size.** ADR-0009 puts the Dagster daemon, webserver, code server, and Postgres on the API's spot pool; ADR-0007 adds kube-prometheus-stack and Grafana; ADR-0004 adds Argo CD. By AWS's [max-pods table](https://github.com/aws/amazon-vpc-cni-k8s/blob/master/misc/eni-max-pods.txt) an m7i.large holds 29 pods and an m7i.xlarge 58. My count of those components, their DaemonSets, and two API replicas is 23–25 pods and about 6–8 GiB of requests; that is an assumption from upstream chart shapes, not a measurement (ADR-0009: "Pod sizes were not measured"). An 8 GiB node fails on memory; a 16 GiB, 4 vCPU node is the smallest plausible fit. If Argo CD instead lives on the Karpenter host, that host grows to a t3.large or larger.
 
@@ -103,19 +103,19 @@ ADR-0003 cites the brief's "classic surprise" NAT line item as a reason to go wi
 
 | Design (dev, one AZ) | Arithmetic | $/month |
 | --- | --- | ---: |
-| 5 endpoints (ADR-0003's own list) | 5 × 7.30 | 36.50 |
+| 5 endpoints (ADR-0003's list, read as above) | 5 × 7.30 | 36.50 |
 | 8 endpoints | 8 × 7.30 | 58.40 |
 | 10 endpoints | 10 × 7.30 | 73.00 |
 | One NAT gateway, address, 50 GB | 32.85 + 3.65 + 50 × 0.045 | 38.75 |
 | Break-even vs one NAT, no traffic | 36.50 / 7.30 | 5 endpoints per AZ |
 
-In two AZs (prod): 10 endpoints cost $146.00; two NAT gateways with addresses and 100 GB cost 73.00 + 4.50 = $77.50, a difference of about $69/month (the endpoint data-processing line, $1.00, also disappears). The no-NAT posture may still be right for the egress and blast-radius reasons in ADR-0003 (ERA5 via CDS is already flagged there as the case that would need egress), but **it is not a saving**, and its cost is the largest single controllable line after the control plane. This is a decision for the maintainer, not one this ticket makes.
+In two AZs (prod): 10 endpoints cost $146.00; two NAT gateways with addresses and 100 GB cost 73.00 + 4.50 = $77.50, a difference of about $69/month (the endpoint data-processing line, $1.00, also disappears). The no-NAT posture may still be right for the egress-constraint reasons in ADR-0003 (ERA5 via CDS is already flagged there as the case that would need egress), but **it is not a saving**, and its cost is the largest single controllable line after the control plane. This is a decision for the maintainer, not one this ticket makes.
 
 ## The burst: one full-CONUS recompute
 
 ### What the library measured
 
-Library [`benchmarks/README.md`](https://github.com/monocongo/climate_indices/blob/main/benchmarks/README.md), section "Legacy CLI multiprocessing vs xarray/Dask on CONUS nClimGrid (#1121)"; results in `benchmarks/results/nclimgrid_spi6_*.txt`. Full nClimGrid grid, 596 × 1385 (469,758 land of 825,460 cells), 528 months (1981–2024), SPI-6, calibration 1991–2020, Apple M5 laptop, 10 CPUs, 32 GB, Python 3.14:
+Library [`benchmarks/README.md`](https://github.com/monocongo/climate_indices/blob/main/benchmarks/README.md), section "Legacy CLI multiprocessing vs xarray/Dask on CONUS nClimGrid (#1121)"; results in `benchmarks/results/nclimgrid_spi6_*.txt`. Full nClimGrid grid, 596 × 1385 (469,758 land of 825,460 cells), 528 months (1981–2024), SPI-6, calibration 1991–2020, Apple M5 machine, 10 CPUs, 32 GB, Python 3.14:
 
 | Configuration | Compute (min of 3) |
 | --- | ---: |
@@ -126,7 +126,7 @@ Library [`benchmarks/README.md`](https://github.com/monocongo/climate_indices/bl
 
 Two facts limit what this can support:
 
-- **No cluster benchmark exists.** The library's EC2 scale-out section (#1127) reads "Pending the maintainer's cluster run". Every number above is one laptop, and Dask 8 workers reached only 2.0x over 1 worker ("barely reaching eager's serial time"), a negative result the library attributes to pickling across processes at this size.
+- **No cluster benchmark exists.** The library's EC2 scale-out section (#1127) reads "Pending the maintainer's cluster run". Every number above is one machine, and Dask 8 workers reached only 2.0x over 1 worker ("barely reaching eager's serial time"), a negative result the library explains, as an interpretation it marks "not measured", by pickling across processes at this size.
 - **The path ADR-0006 needs is the one not benchmarked.** ADR-0006 fixes Pearson III. The library states the xarray-path Pearson is not comparable because of [#1118](https://github.com/monocongo/climate_indices/issues/1118), **still open at retrieval**: the block Pearson kernel returns all-NaN once half or more of a block's cells are entirely missing. nClimGrid is 43.1% masked overall, so coastal and border tiles at typical tile sizes will cross that line. The only working Pearson timing is the CLI's per-cell path.
 
 ### The model
@@ -163,7 +163,7 @@ Anchor to the one working Pearson number: 104.726 s × 9 workers = 942.5 core-se
 
 ## Storage growth: per-Publish versions
 
-ADR-0001 and ADR-0009 give the published path as `published/<index>/<timescale>/cal<start>-<end>/<YYYY-MM>.r<N>/`, ADR-0009 recomputes the whole series per Publish, and #19 makes a pinned `version` "immutable and caches without expiry". Each monthly Publish is therefore a full new store plus its derived point-series Zarr (ADR-0008: "a few GB per version"). From ADR-0001's arithmetic, one float32 store is 5.22 GB uncompressed; taking 5.2–10.4 GB per version set (store plus point series; compression unmeasured):
+ADR-0001 and ADR-0009 give the published path as `published/<index>/<timescale>/cal<start>-<end>/<YYYY-MM>.r<N>/`, ADR-0009 recomputes the whole series per Publish, and #19 makes a `version`-pinned request "immutable and caches without expiry". Each monthly Publish is therefore a full new store plus its derived point-series Zarr (ADR-0008: "a few GB per version"). ADR-0001 gives 825,460 cells over about 1,560 months; at the M1 shape's 1,580 months ([#18](https://github.com/climate-indices/climate-indices-cloud/issues/18): from 1895-01 to the latest available month) one float32 store is 5.22 GB uncompressed (5.15 GB at 1,560); taking 5.2–10.4 GB per version set (store plus point series; compression unmeasured):
 
 | Retained, all in S3 Standard | Arithmetic | $/month |
 | --- | --- | ---: |
@@ -215,14 +215,14 @@ Traffic does not move the total until it passes the free tiers: 10M HTTPS reques
 | --- | ---: | --- | --- |
 | Interface endpoints in 2 AZs instead of 1 | +$58.40 (8 endpoints) | dev | Pin dev nodes and endpoints to one AZ |
 | Interface endpoints, 2 AZs, 10 endpoints | $146.00 | prod | Fewer endpoints; one AZ (loses AZ resilience); or a NAT (about −$69 versus 10 endpoints in two AZs) |
-| M2 control plane sized to a 16 GiB node | +$36.06 | dev | Measure the pods before sizing (ADR-0009 already requires it); Graviton −$8.76 |
+| M2 control plane sized to a 16 GiB node | +$36.06 | dev | Measure the pods before sizing ([#27](https://github.com/climate-indices/climate-indices-cloud/issues/27): "Requests are sized before M2"); Graviton −$8.76 |
 | Karpenter host on-demand t3.medium | $30.37 | dev, prod | Managed-group node on spot −$18.22 (Advisor interruption band above 20%). Fargate is not cheaper at the guide's 1 vCPU / 1 GiB request ($36.04, +$5.67); it saves only if the controller's requests are lowered to 0.5 vCPU / 1 GiB, billed as 0.5 vCPU + 2 GB = $21.26 (−$9.10) |
 | Logs at ADR-0007's own 1 GB/day guard, per group | $15.00 | dev, prod | Lower the guard; 1 to 0.2 GB/day −$12.00 |
 | A second ALB | +$16.43 | dev, prod | Share one ALB via an Ingress group; prod's VPC-origin ALB cannot share with an IP-allowlisted Grafana ALB, so use port-forward |
 | Serving pool on on-demand instead of spot | +$164.83 (2 × m7i.xlarge) | prod | Stay on spot; spot interruption is an SLO risk ADR-0007 owns |
 | An EKS cluster past standard support (14 months) | +$365.00 per cluster (438.00 − 73.00) | dev, prod | Upgrade cadence at least every 14 months; extended support lasts 12 more |
 | Version retention with no lifecycle | +$1.44–$2.87 per dataset per year retained | dev, prod | Glacier Instant Retrieval lifecycle for older versions |
-| Requests beyond the free tiers | about $3.08 per million | prod | WAF per-IP rate limits (ADR-0008 and #19 already plan them) |
+| Requests beyond the free tiers | about $3.08 per million | prod | WAF per-IP rate limits (#19 already plans them) |
 | Environment existing 24×7 | $243.95 of dev M2 Central is hour-billed (73.00 + 58.40 + 17.43 + 30.37 + 64.75) | dev | Existence schedule: up 50% of hours saves $121.98; 25% saves $182.96. Needs the cluster destroyed and re-created, since the control plane bills only while it exists |
 
 **What it takes to bring dev M2 under $250 from $270.81 (needs −$20.81):**
@@ -237,7 +237,7 @@ Values here move a total by more than about 10% unless marked.
 
 | Assumption | Value used | Moves the result by | Basis |
 | --- | --- | --- | --- |
-| Interface-endpoint count and AZ count | 7 / 8 / 10 in 1 / 1 / 2 AZ (dev) | $51–$146 | AWS's private-cluster list versus ADR-0003's list; whether Karpenter's interruption queue and `eks` endpoint are used is undecided |
+| Interface-endpoint count and AZ count | 7 / 8 / 10 in 1 / 1 / 2 AZ (dev) | $51–$146 | AWS's private-cluster list versus ADR-0003's list; whether Karpenter's interruption queue is used is undecided, and `ssm` and `eks` are not counted |
 | Karpenter host | t3.medium spot / t3.medium on-demand / t3.large on-demand | $12–$61 | AWS and Karpenter guidance require one; which is a spec choice. Fargate at the guide's 1 vCPU / 1 GiB request bills 1 vCPU + 2 GB ($36.04), so it is the cheap option only if the controller's requests are lowered |
 | M2 node size | m7i.xlarge (16 GiB, 58 pods) | +$36 | Component counts from upstream chart shapes; ADR-0009 states pod sizes were not measured; **not** a measurement |
 | Log volume | 0.1 / 1 / 3 GB per day | $1.50–$45 | ADR-0007's 1 GB/day guard, itself a guess ("revisit once a full-CONUS recompute gives a measured volume") |
@@ -254,11 +254,11 @@ Values here move a total by more than about 10% unless marked.
 
 Not costed, each small or undecided: Route 53, KMS, ACM (free), domain registration, cross-AZ data transfer ($0.01/GB), CloudFront Function invocations ($0.10 per million, first 2M free), SQS and SNS request charges, EBS snapshots, Athena ($5 per TB scanned, [#22](https://github.com/climate-indices/climate-indices-cloud/issues/22) is open and a public query surface has no cost cap), and the Cost Explorer API calls behind the public cost dashboard ([#25](https://github.com/climate-indices/climate-indices-cloud/issues/25)). Whether a NAT gateway's address is billed under the public IPv4 charge is assumed, not verified (at most $3.65).
 
-**Page-read only, not cross-checked against a Price List file:** the CloudFront figures (always-free tier, $0.085 per GB, $0.0100 per 10k, Functions, VPC origin no charge, invalidation), which came from the pay-as-you-go page through a summarizing fetch. The `AmazonCloudFront` bulk file holds only Origin Shield and Lambda@Edge items. The WAF, EKS, ELB, VPC, EC2, S3, CloudWatch, Glue, ECR, and Secrets Manager prices were read from the bulk files.
+**CloudFront** figures (always-free tier, $0.085 per GB, $0.0100 per 10k HTTPS requests, Functions, invalidation) were read from the pay-as-you-go page and agree with the global Price List file, `https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonCloudFront/current/index.json`, published 2026-09-16; the `us-east-1` file holds only Origin Shield and Lambda@Edge items. "VPC-origin fetches free" has no Price List entry and rests on the pricing page. The WAF, EKS, ELB, VPC, EC2, S3, CloudWatch, Glue, ECR, and Secrets Manager prices were read from the regional bulk files.
 
 **Resolved from earlier notes:**
 
-- [#19](https://github.com/climate-indices/climate-indices-cloud/issues/19) "not verified": WAF managed rule groups carry the $1 per-rule-group charge and no other fee that the pricing page mentions; the Core rule set is 700 WCU, the IP reputation list 25, and a rate-based rule 2 (plus 30 per custom aggregation key), all under the 1,500-WCU threshold above which the request price rises by $0.20 per million for each additional 500. Inspection is 16 KB by default for CloudFront.
+- [#19](https://github.com/climate-indices/climate-indices-cloud/issues/19) "not verified": WAF managed rule groups carry the $1 per-rule-group charge and no other fee that the pricing page mentions; the Core rule set is 700 WCU, the IP reputation list 25, and a rate-based rule 2 (plus 30 per custom aggregation key), all under the 1,500-WCU threshold above which the request price rises by $0.20 per million for each additional 500. Inspection is 16 KB by default for CloudFront ([body inspection limit](https://docs.aws.amazon.com/waf/latest/developerguide/web-acl-setting-body-inspection-limit.html)).
 - [#20](https://github.com/climate-indices/climate-indices-cloud/issues/20) and ADR-0007 "not verified": an SNS interface endpoint carries the same $0.01 per AZ-hour as every other interface endpoint in the Price List; the file has no service-specific rate.
 - ADR-0008 says the first 1,000 invalidation paths per month are free; the CloudFront page still says so.
 
@@ -267,16 +267,16 @@ Not costed, each small or undecided: Route 53, KMS, ACM (free), domain registrat
 Suggestions only; nothing was created.
 
 - **ADR-0005 (reopen or amend).** The dev floor at M2 is $270.81 against $250 and prod is $507.90 against $500 at Central. The maintainer either records a higher ceiling (about $300 dev, $550 prod covers Central with about $30–$40 of room for storage growth), or adopts a named set of knobs, or both. Its "genuine headroom for recompute bursts" sentence should be replaced with the recount.
-- **ADR-0003 (cost rationale only).** Interface endpoints exceed a NAT gateway beyond 5 per AZ; the endpoint list also needs the `ec2`, `elasticloadbalancing`, and `eks-auth` or `sqs` additions ADR-0009 already found.
-- **#23 (compute topology).** Serialized runs times N datasets versus the 24 h freshness objective; #1118 versus tile size; the missing #1127 cluster benchmark, which is a maintainer-run task in the library repo and would replace the laptop-derived range above; scPDSI timing.
+- **ADR-0003 (cost rationale only).** Interface endpoints exceed a NAT gateway beyond 5 per AZ; the endpoint list also needs the `ec2`, `elasticloadbalancing`, and `eks-auth` (or `oidc-eks`) additions ADR-0009 already found, plus `sqs` if Karpenter's interruption queue is used and `ssm` and `eks` from Karpenter's private-cluster guide.
+- **#23 (compute topology).** Serialized runs times N datasets versus the 24 h freshness objective; #1118 versus tile size; the missing #1127 cluster benchmark, which is a maintainer-run task in the library repo and would replace the single-machine-derived range above; scPDSI timing.
 - **E1 spec.** A dev-environment existence schedule; Karpenter host choice; EKS upgrade cadence tied to the 14-month standard-support window; a cost-allocation tag check (ADR-0005 says an untagged resource is a defect).
 - **E3 or E5 spec.** A version-retention and lifecycle policy for Publish versions; without it storage is the only line that grows unattended.
-- **M2 spec.** Measure the Dagster, kube-prometheus-stack, and Argo CD pod requests on a real cluster before fixing node size (ADR-0009 already asks for this); this report supplies only the dollar sensitivity.
+- **M2 spec.** Measure the Dagster, kube-prometheus-stack, and Argo CD pod requests on a real cluster before fixing node size ([#27](https://github.com/climate-indices/climate-indices-cloud/issues/27): "Requests are sized before M2"); this report supplies only the dollar sensitivity.
 - **Possible fog:** the Spark/EMR comparison stretch (E3) and the public Athena surface (#22) have no cost model at all.
 
 ## Sources consulted
 
-**AWS Price List bulk files** (`https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/<service>/current/us-east-1/index.json`), retrieved 2026-09-25; file publication dates: AmazonEC2 2026-09-24, AmazonCloudWatch 2026-09-22, AmazonEKS and AmazonS3 2026-09-18, AmazonVPC 2026-09-17, AmazonSNS 2026-09-15, awswaf 2026-09-14, AWSELB / AWSGlue / AWSSecretsManager / AmazonECR / AmazonECS / AmazonAthena 2026-09-11.
+**AWS Price List bulk files** (`https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/<service>/current/us-east-1/index.json`), retrieved 2026-09-25; file publication dates: AmazonEC2 2026-09-24, AmazonCloudWatch 2026-09-22, AmazonEKS and AmazonS3 2026-09-18, AmazonVPC 2026-09-17, AmazonSNS 2026-09-15, awswaf 2026-09-14, AWSELB / AWSGlue / AWSSecretsManager / AmazonECR / AmazonECS / AmazonAthena 2026-09-11; AmazonCloudFront (global file) 2026-09-16.
 
 **AWS pages and docs**
 
@@ -292,6 +292,6 @@ Suggestions only; nothing was created.
 
 - [`benchmarks/README.md`](https://github.com/monocongo/climate_indices/blob/main/benchmarks/README.md): #1121 CONUS nClimGrid results, #1127 EC2 runbook ("Pending the maintainer's cluster run").
 - `benchmarks/results/nclimgrid_spi6_gamma_xarray.txt`, `nclimgrid_spi6_cli.txt`, `nclimgrid_fixture_provenance.txt`.
-- [Issue #1118](https://github.com/monocongo/climate_indices/issues/1118) (open at retrieval); `CHANGELOG.md` 3.0.0 gridded-vectorization figures.
+- [Issue #1118](https://github.com/monocongo/climate_indices/issues/1118) (open at retrieval).
 
-**This repository:** [ADR-0001](../adr/0001-two-layouts-for-published-data.md), [0003](../adr/0003-serving-on-eks-and-no-nat.md), [0004](../adr/0004-terraform-owns-aws-argocd-owns-the-cluster.md), [0005](../adr/0005-one-account-two-environments-with-a-ceiling.md), [0007](../adr/0007-in-cluster-prometheus-cloudwatch-for-logs-and-aws-native-alarms.md), [0008](../adr/0008-point-reads-come-from-a-derived-series-store-and-cache-by-grid-cell.md), [0009](../adr/0009-dagster-oss-orchestrates-the-pipeline.md); [`CONTEXT.md`](../../CONTEXT.md); the resolution comments on tickets [#18](https://github.com/climate-indices/climate-indices-cloud/issues/18), [#19](https://github.com/climate-indices/climate-indices-cloud/issues/19), [#20](https://github.com/climate-indices/climate-indices-cloud/issues/20), and [#27](https://github.com/climate-indices/climate-indices-cloud/issues/27); the capstone brief's cost section.
+**This repository:** [ADR-0001](../adr/0001-two-layouts-for-published-data.md), [0003](../adr/0003-serving-on-eks-and-no-nat.md), [0004](../adr/0004-terraform-owns-aws-argocd-owns-the-cluster.md), [0005](../adr/0005-one-account-two-environments-with-a-ceiling.md), [0006](../adr/0006-spi-calibrates-pearson-iii-on-a-fixed-1895-2022-window.md), [0007](../adr/0007-in-cluster-prometheus-cloudwatch-for-logs-and-aws-native-alarms.md), [0008](../adr/0008-point-reads-come-from-a-derived-series-store-and-cache-by-grid-cell.md), [0009](../adr/0009-dagster-oss-orchestrates-the-pipeline.md); [`CONTEXT.md`](../../CONTEXT.md); the resolution comments on tickets [#18](https://github.com/climate-indices/climate-indices-cloud/issues/18), [#19](https://github.com/climate-indices/climate-indices-cloud/issues/19), [#20](https://github.com/climate-indices/climate-indices-cloud/issues/20), and [#27](https://github.com/climate-indices/climate-indices-cloud/issues/27); the capstone brief's cost section.
