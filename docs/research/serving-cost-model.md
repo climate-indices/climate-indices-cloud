@@ -5,7 +5,7 @@
 
 ## Summary
 
-**Verdict: the ceilings do not hold as ADR-0005 states them; they hold only with named knob settings, or ADR-0005 is amended.** ADR-0005's own inventory (control plane, one ALB, one small spot node, storage, logs) totals **$139/month in dev** and does leave about $110 of headroom. But that inventory omits line items the accepted ADRs themselves require, worth **$92 at M1 and $131 at M2**, and once they are counted the floor sits at or over the ceiling *before any recompute runs*.
+**Verdict: ADR-0005's floor inventory is incomplete, and the recount leaves both ceilings with little or no room. At Central inputs dev is $18.21 under at M1, $20.81 (8.3%) over at M2, and prod is $7.90 (1.6%) over at M4; at Low inputs all three are under. The ceilings can hold, but only with a stated set of choices (endpoint count and AZs, Karpenter host, log volume, second ALB, node size), or with ADR-0005 amended.** ADR-0005's own inventory (control plane, one ALB, one small spot node, storage, logs) totals **$139/month in dev** and does leave about $110 of headroom. But that inventory omits line items the accepted ADRs themselves require, worth **$92 at M1 and $131 at M2**, and once they are counted the M2 dev floor and the M4 prod floor sit at or just over the ceiling *before any recompute runs*, while the M1 dev floor keeps about $18.
 
 | Environment (us-east-1, 730 h) | Low | Central | Envelope high | Ceiling | Central vs ceiling |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -14,7 +14,7 @@
 | Dev at M2 (Dagster, Prometheus, Grafana, Postgres) | $219.38 | **$270.81** | $442.73 | $250 | **$20.81 over** |
 | Prod at M4, 1k / 10k / 100k requests per month | $327.09 | **$507.90** | $886.31 | $500 | **$7.90 over** |
 
-"Envelope high" sums every pessimistic input at once; it is a sensitivity bound, not a forecast. The verdict rests on Central and Low.
+"Envelope high" sums every pessimistic input at once; it is a sensitivity bound, not a forecast. The verdict is the interval, not a point: Low is under every ceiling and Central is over two of them. Prod's $7.90 overage is smaller than any one of dropping the second ALB (−$16.43), running one Karpenter host (−$30.37), or putting endpoints in one AZ (−$73.00).
 
 What the model found, in order of dollars:
 
@@ -22,7 +22,7 @@ What the model found, in order of dollars:
 2. **Karpenter cannot run on a node it manages**, so the cluster needs a separate always-on host ($12–$61 dev, $30–$121 prod) that no ADR counts.
 3. **ADR-0009's control plane does not fit the "small" spot node.** By AWS's pod limits and the component count, M2 needs about a 4 vCPU / 16 GiB node: +$36/month over the M1 node. ADR-0009 already says this "changes ADR-0005's floor and needs a recorded decision".
 4. **Recompute bursts are not the problem.** A full-CONUS recompute is modelled at **$0.14–$0.45** under proportional scaling ($1.79 with a 4x margin), or $0.10–$0.30 at the measured per-cell scaling. The ceiling is decided by the always-on floor, not the burst.
-5. **Traffic is not the problem either.** At 1k, 10k, and 100k requests per month every request-driven cost is under $1; CloudFront stays inside its always-free tier until 10M requests.
+5. **Traffic is not the problem either.** At 1k, 10k, and 100k requests per month every request-driven cost of `series`-sized responses (about 50 KB) is under $1; CloudFront stays inside its always-free tier until 10M requests or 1 TB out, so large static files (map layers, bulk downloads) are the exception.
 6. **Two costs that grow or spike unless a policy exists:** per-Publish version storage (about $1.44–$2.87/month per dataset per year retained, all in Standard) and an EKS version left past standard support ($438/month instead of $73).
 
 ## Method and price basis
@@ -109,7 +109,7 @@ ADR-0003 cites the brief's "classic surprise" NAT line item as a reason to go wi
 | One NAT gateway, address, 50 GB | 32.85 + 3.65 + 50 × 0.045 | 38.75 |
 | Break-even vs one NAT, no traffic | 36.50 / 7.30 | 5 endpoints per AZ |
 
-In two AZs (prod): 10 endpoints cost $146.00; two NAT gateways with addresses and 100 GB cost 73.00 + 4.50 = $77.50, a difference of about $69/month (the endpoint data-processing line, $1.00, also disappears). The no-NAT posture may still be right for the egress-constraint reasons in ADR-0003 (ERA5 via CDS is already flagged there as the case that would need egress), but **it is not a saving**, and its cost is the largest single controllable line after the control plane. This is a decision for the maintainer, not one this ticket makes.
+In two AZs (prod): 10 endpoints cost $146.00; two NAT gateways with addresses and 100 GB cost 73.00 + 4.50 = $77.50, a difference of about $69/month (the endpoint data-processing line, $1.00, also disappears). The no-NAT posture may still be right for the egress-constraint reasons in ADR-0003 (ERA5 via CDS is already flagged there as the case that would need egress), but **it is not a saving**, and its cost is the largest single line in prod ($146.00 against $129.51 for the serving pool) and second only to the control plane in dev at M1. This is a decision for the maintainer, not one this ticket makes.
 
 ## The burst: one full-CONUS recompute
 
@@ -149,7 +149,7 @@ Anchor to the one working Pearson number: 104.726 s × 9 workers = 942.5 core-se
 
 **A monthly upstream tick recomputes every Published Dataset that shares the upstream.** With N datasets (an illustrative 30; [#23](https://github.com/climate-indices/climate-indices-cloud/issues/23) decides N) that is 30 × $0.14–$0.45 = **$4.20–$13.50 per month**, or at most $53.70 with the 4x margin on every run.
 
-**Wall-clock is the binding constraint, not dollars.** ADR-0009 allows "one compute run cluster-wide until #23 sets the pool ceilings", and ADR-0007's freshness SLO is 24 hours. 30 serialized runs at 0.38–1.23 h is **about 11–37 h**, so the worst case would breach the 24 h objective on a cost-free path. This is for #23, not this ticket.
+**Wall-clock, not dollars, is what the recompute count can threaten.** ADR-0009 allows "one compute run cluster-wide until #23 sets the pool ceilings", and ADR-0007's freshness SLO is 24 hours. N serialized runs at 0.38–1.23 h each (proportional scaling) take 3.8–12.3 h at N = 10 and **about 11–37 h** at the illustrative N = 30, so the worst case breaches the 24 h objective from about N = 20 on a cost-free path. That charges 15 min of start and warm-down to every run, which serialized runs on a warm node would not pay. At the measured scaling (0.29–0.84 h per run) N = 30 is 8.7–25.2 h. The result rests on the unmeasured 15–25 min I/O assumption. This is for #23, not this ticket.
 
 ### Which #23 choices move this number
 
@@ -172,7 +172,7 @@ ADR-0001 and ADR-0009 give the published path as `published/<index>/<timescale>/
 | 30 datasets, 1 / 3 years | | 43.06–86.11 / 129.17–258.34 |
 | Same, after transition to Glacier Instant Retrieval | × 0.004 (retrieval $0.03/GB) | about 17% of the above |
 
-This is the one large cost that grows without any change in traffic or code, and it is invisible until a policy exists. Three years of 30 datasets retained in Standard would consume half to all of the dev ceiling ($129–$258 against $250). A lifecycle rule (Standard for the last few versions, Glacier Instant Retrieval for older ones) is the knob; nothing in the ADRs sets one, and ADR-0001 defers structural sharing (`icechunk`) that would avoid the copies.
+This is the one large cost that grows without any change in traffic or code, and it is invisible until a policy exists. Three years of 30 datasets retained in Standard would consume half to slightly more than all of the dev ceiling ($129–$258 against $250). A lifecycle rule (Standard for the last few versions, Glacier Instant Retrieval for older ones) is the knob; nothing in the ADRs sets one, and ADR-0001 defers structural sharing (`icechunk`) that would avoid the copies.
 
 ## Prod at M4
 
@@ -207,7 +207,7 @@ Assumptions: the `series` response is about 50 KB raw (about 1,580 monthly value
 | 10,000 | $0.0060 | $0.00 (0.50 GB out) | $0.004 | about 0 |
 | 100,000 | $0.0600 | $0.00 (5.00 GB out) | $0.040 | about 0 |
 
-Traffic does not move the total until it passes the free tiers: 10M HTTPS requests per month (the request tier ends before the 1 TB transfer tier does, at 50 KB per response). Beyond them the marginal cost is **about $3.08 per million requests**: WAF 0.60 + CloudFront HTTPS 1.00 + transfer 15 GB × 0.085 = 1.275 + S3 GET 0.50M × $0.0004 per 1k = 0.20. Origin compute is not modelled. At the Low total ($327.09) that is about $172.91 ÷ 3.08 = 56M requests per month of headroom; at Central, none.
+Traffic does not move the total until it passes the free tiers: 10M HTTPS requests per month (the request tier ends before the 1 TB transfer tier does, at 50 KB per response). Beyond them the marginal cost is **about $3.08 per million requests** at 15 KB gzip and a 50% cache hit: WAF 0.60 + CloudFront HTTPS 1.00 + transfer 15 GB × 0.085 = 1.275 + S3 GET 0.50M × $0.0004 per 1k = 0.20. At 50 KB raw and no cache hits it is $6.25: 0.60 + 1.00 + 50 GB × 0.085 = 4.25 + S3 GET 1M × $0.0004 per 1k = 0.40. Origin compute is not modelled. At the Low total ($327.09) that is about $172.91 ÷ 3.08 = 56M requests per month of headroom (27.7M at $6.25); at Central, none.
 
 ## What breaches each ceiling, and the knob to turn
 
@@ -222,14 +222,18 @@ Traffic does not move the total until it passes the free tiers: 10M HTTPS reques
 | Serving pool on on-demand instead of spot | +$164.83 (2 × m7i.xlarge) | prod | Stay on spot; spot interruption is an SLO risk ADR-0007 owns |
 | An EKS cluster past standard support (14 months) | +$365.00 per cluster (438.00 − 73.00) | dev, prod | Upgrade cadence at least every 14 months; extended support lasts 12 more |
 | Version retention with no lifecycle | +$1.44–$2.87 per dataset per year retained | dev, prod | Glacier Instant Retrieval lifecycle for older versions |
-| Requests beyond the free tiers | about $3.08 per million | prod | WAF per-IP rate limits (#19 already plans them) |
+| Requests beyond the free tiers | about $3.08 per million at 15 KB gzip and 50% cache hit ($6.25 at 50 KB raw and 0% hit) | prod | WAF per-IP rate limits (#19 already plans them) |
+| Burst pool left warm (minimum nodes at 1 or more, or no consolidation) | +$264.90 (m7i.4xlarge spot 24×7; $588.67 on-demand) | dev, prod | Scale the burst pool to zero, keep a short consolidation delay, and cap it with a NodePool `limits` value (the worker ceiling) |
+| Serving pool size (prod, 2 to 1 × m7i.xlarge spot) | −$64.75 | prod | Not free: ADR-0005 says prod adds "a larger serving pool", and one node is a single point of failure for a public API |
+| Log retention (7 to 30 days at 1 GB/day) | +$0.69 (storage $0.03/GB-month: about $0.21 at 7 days, $0.90 at 30) | dev, prod | Not a lever: ingestion at $0.50/GB is the cost, so lower the volume, not the retention |
+| Large static objects over CloudFront (map layers, bulk downloads) | $0.085 per GB past the 1 TB free tier, which equals an average of 10 MB per request at 100k requests; one bulk Zarr set (about 5.2 GB) costs about $0.44 per download past it | prod | WAF per-IP request limits do not bound bytes; size caps or a gated path for bulk files |
 | Environment existing 24×7 | $243.95 of dev M2 Central is hour-billed (73.00 + 58.40 + 17.43 + 30.37 + 64.75) | dev | Existence schedule: up 50% of hours saves $121.98; 25% saves $182.96. Needs the cluster destroyed and re-created, since the control plane bills only while it exists |
 
 **What it takes to bring dev M2 under $250 from $270.81 (needs −$20.81):**
 
 - Karpenter host on a spot managed-group node (−$18.22) plus logs at 0.2 GB/day (−$12.00) gives $240.59.
 - One NAT in place of the endpoints (−$20.15, counting the $0.50 endpoint data line) alone gives $250.66, not enough.
-- None of these leaves room for storage growth or bursts. Only an existence schedule (dev up half the time, about −$122) or a recorded ceiling change to about $300 restores real headroom.
+- Combined, the host on spot (−$18.22), logs at 0.2 GB/day (−$12.00), Graviton (−$8.76), and one fewer endpoint (−$7.30) reach $224.53, close to the Low column ($219.38), with about $25 of room for bursts and growth. More than that takes an existence schedule (dev up half the time, about −$122) or a recorded ceiling change to about $300.
 
 ## Assumptions and unverified
 
@@ -238,13 +242,16 @@ Values here move a total by more than about 10% unless marked.
 | Assumption | Value used | Moves the result by | Basis |
 | --- | --- | --- | --- |
 | Interface-endpoint count and AZ count | 7 / 8 / 10 in 1 / 1 / 2 AZ (dev) | $51–$146 | AWS's private-cluster list versus ADR-0003's list; whether Karpenter's interruption queue is used is undecided, and `ssm` and `eks` are not counted |
+| AZ count in prod | 1 / 2 / 2 AZs | $73.00 (endpoints) | No ADR fixes an AZ count; EKS needs subnets in two AZs, but nodes and endpoints do not. Central takes the costlier choice |
+| Second ALB in prod | 1 / 2 / 2 ALBs | $16.43 | ADR-0007 allows port-forward or an IP-allowlisted internal ALB for Grafana; Central takes the ALB |
 | Karpenter host | t3.medium spot / t3.medium on-demand / t3.large on-demand | $12–$61 | AWS and Karpenter guidance require one; which is a spec choice. Fargate at the guide's 1 vCPU / 1 GiB request bills 1 vCPU + 2 GB ($36.04), so it is the cheap option only if the controller's requests are lowered |
 | M2 node size | m7i.xlarge (16 GiB, 58 pods) | +$36 | Component counts from upstream chart shapes; ADR-0009 states pod sizes were not measured; **not** a measurement |
-| Log volume | 0.1 / 1 / 3 GB per day | $1.50–$45 | ADR-0007's 1 GB/day guard, itself a guess ("revisit once a full-CONUS recompute gives a measured volume") |
+| Log volume | 0.1 / 1 / 3 GB per day | $1.50–$45 | ADR-0007's 1 GB/day alarm threshold, which it calls "a first guess" ("revisit once a full-CONUS recompute gives a measured volume"); Central uses the threshold as the expected volume, so it is pessimistic here |
 | Spot discount | Advisor "savings over On-Demand", 53–61% | about $15 per m7i.xlarge per 10 points | The [Advisor page](https://aws.amazon.com/ec2/spot/instance-advisor/) defines it as calculated over the last 30 days and averaged across AZs; the data file is an AWS-owned static file behind that page, not a documented API; current spot price needs credentials |
 | Spot interruption | not costed | | Advisor reclaim-rate bands (trailing month) for these types run from 10–15% (m7g.xlarge) to above 20% (m7i.xlarge, r7i.xlarge, m7i.4xlarge, t3.medium); reclaim of the single dev node means an outage until Karpenter replaces it |
 | Publish version-set size | 5.2–10.4 GB | storage table | Derived from ADR-0001 and ADR-0008 figures; compression not measured |
 | Number of Published Datasets | 1 / 10 / 30 | storage and burst sums | Illustrative; #23 decides |
+| Dev S3 growth at M2 | about 30 GB at M1; no growth counted | $1.44–$2.87 per dev dataset per year retained | If dev runs the sensor, it also accumulates Publish versions (ADR-0009) |
 | Recompute time | 0.38–1.23 node-hours proportional; 0.29–0.84 at the measured per-cell scaling | under $2 per run | Scaled from the CLI Pearson benchmark; the x1.3 scaling is one machine, one path, synthetic data; no cluster benchmark (#1127) and #1118 open |
 | I/O, publish, and warm-down minutes | 15–25 and 15 | under $0.10 per run | Assumed |
 | ALB LCU | dev, per ALB: $0 / $1 / $5.84; prod, in total: 0.5 / 1 / 2 average LCUs ($2.92 / $5.84 / $11.68) | under $12 | Traffic is near zero; not measured |
@@ -252,7 +259,7 @@ Values here move a total by more than about 10% unless marked.
 | Prod S3 point in each range | Low top of N=1, Central bottom of N=10, High top of N=30 | Low −$1.43 at the bottom; Central +$7.18 at the midpoint | The storage table's 5.2–10.4 GB per version set is itself unmeasured |
 | Response size and cache-hit rate | 50 KB raw / 15 KB gzip; 0–50% | under $1 at the stated volumes | Assumed from the `series` shape |
 
-Not costed, each small or undecided: Route 53, KMS, ACM (free), domain registration, cross-AZ data transfer ($0.01/GB), CloudFront Function invocations ($0.10 per million, first 2M free), SQS and SNS request charges, EBS snapshots, Athena ($5 per TB scanned, [#22](https://github.com/climate-indices/climate-indices-cloud/issues/22) is open and a public query surface has no cost cap), and the Cost Explorer API calls behind the public cost dashboard ([#25](https://github.com/climate-indices/climate-indices-cloud/issues/25)). Whether a NAT gateway's address is billed under the public IPv4 charge is assumed, not verified (at most $3.65).
+Not costed, each small or undecided: Route 53, KMS, the M4 Submission worker on the compute pool ([#19](https://github.com/climate-indices/climate-indices-cloud/issues/19)), ALB access-log storage in S3 (ADR-0007), ACM (free), domain registration, cross-AZ data transfer ($0.01/GB), CloudFront Function invocations ($0.10 per million, first 2M free), SQS and SNS request charges, EBS snapshots, Athena ($5 per TB scanned, [#22](https://github.com/climate-indices/climate-indices-cloud/issues/22) is open and a public query surface has no cost cap), and the Cost Explorer API calls behind the public cost dashboard ([#25](https://github.com/climate-indices/climate-indices-cloud/issues/25)). Whether a NAT gateway's address is billed under the public IPv4 charge is assumed, not verified (at most $3.65). The ALBs are internal ([#18](https://github.com/climate-indices/climate-indices-cloud/issues/18), [#19](https://github.com/climate-indices/climate-indices-cloud/issues/19)), so no public IPv4 charge applies to them; an internet-facing ALB would add about $7.30 each (2 AZs × $3.65).
 
 **CloudFront** figures (always-free tier, $0.085 per GB, $0.0100 per 10k HTTPS requests, Functions, invalidation) were read from the pay-as-you-go page and agree with the global Price List file, `https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonCloudFront/current/index.json`, published 2026-09-16; the `us-east-1` file holds only Origin Shield and Lambda@Edge items. "VPC-origin fetches free" has no Price List entry and rests on the pricing page. The WAF, EKS, ELB, VPC, EC2, S3, CloudWatch, Glue, ECR, and Secrets Manager prices were read from the regional bulk files.
 
@@ -266,7 +273,7 @@ Not costed, each small or undecided: Route 53, KMS, ACM (free), domain registrat
 
 Suggestions only; nothing was created.
 
-- **ADR-0005 (reopen or amend).** The dev floor at M2 is $270.81 against $250 and prod is $507.90 against $500 at Central. The maintainer either records a higher ceiling (about $300 dev, $550 prod covers Central with about $30–$40 of room for storage growth), or adopts a named set of knobs, or both. Its "genuine headroom for recompute bursts" sentence should be replaced with the recount.
+- **ADR-0005 (reopen or amend).** The dev floor at M2 is $270.81 against $250 and prod is $507.90 against $500 at Central. The maintainer either records a higher ceiling (about $300 dev, $550 prod covers Central with about $29–$42 of room for storage growth), or adopts a named set of knobs, or both; at Low inputs the current ceilings already hold. Its "genuine headroom for recompute bursts" sentence holds at M1 (about $18 of headroom against $0.14–$1.79 per burst) and fails at M2 and M4 because of the floor, not the burst.
 - **ADR-0003 (cost rationale only).** Interface endpoints exceed a NAT gateway beyond 5 per AZ; the endpoint list also needs the `ec2`, `elasticloadbalancing`, and `eks-auth` (or `oidc-eks`) additions ADR-0009 already found, plus `sqs` if Karpenter's interruption queue is used and `ssm` and `eks` from Karpenter's private-cluster guide.
 - **#23 (compute topology).** Serialized runs times N datasets versus the 24 h freshness objective; #1118 versus tile size; the missing #1127 cluster benchmark, which is a maintainer-run task in the library repo and would replace the single-machine-derived range above; scPDSI timing.
 - **E1 spec.** A dev-environment existence schedule; Karpenter host choice; EKS upgrade cadence tied to the 14-month standard-support window; a cost-allocation tag check (ADR-0005 says an untagged resource is a defect).
