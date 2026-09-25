@@ -46,9 +46,10 @@ Report is written. Distinct from computing: computing can happen any number of t
 Publish happens once per version.
 
 **Serve Surface**:
-The derived artifacts shaped for readers rather than for calibration — map layers, aggregate
-tables, bulk downloads. Derived from the same compute pass as the Published Dataset, never
-maintained separately.
+The derived artifacts shaped for readers rather than for calibration — one per kind of reader:
+map layers, a point series (every month for one location), area aggregates, and bulk
+downloads. Derived from the same compute pass as the Published Dataset, never maintained
+separately, and never read by compute.
 
 ### Trust
 
@@ -75,6 +76,19 @@ The interval between an Upstream's publication and our Publish. The service's th
 the reason ingestion is event-driven where the upstream announces new data. Every new or revised
 Upstream object starts its own clock, and a Publish delayed by a Validation Gate block is still
 late: freshness is what a consumer experiences, not why it slipped.
+
+### Callers
+
+**Submitted Series**:
+A time series a caller supplies rather than one the service publishes. The service computes on
+it but never validates it.
+_Avoid_: Upload (a transfer, not the data)
+
+**Submission**:
+A caller's request to compute indices on a Submitted Series. Its result is never a Published
+Dataset: it passes no Validation Gate and carries no Evidence Class, only the engine version,
+the configuration used, and the library's warnings.
+_Avoid_: Run (a pipeline run is a different thing), Job (a mechanism, not the concept)
 
 ### Delivery
 
